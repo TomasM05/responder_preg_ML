@@ -41,7 +41,7 @@ router.post('/notifications', async (req, res) => {
         const mensaje1 = {
           from: { user_id: order.seller.id },
           to: { user_id: buyerId },
-          text: `¡Hola ${order.buyer.first_name}! Muchas gracias por tu compra. Ya estamos preparando tu producto para despacharlo. ¡Saludos!`
+          text: `¡Hola ${order.buyer.first_name}! Muchas gracias por tu compra. ¿Podrías pasarme el número de chasis del vehículo? Así verifico que la compra sea correcta. ¡Saludos!`
         };
         
         await axios.post(`https://api.mercadolibre.com/messages/packs/${packId}/sellers/${order.seller.id}`, mensaje1, {
@@ -52,18 +52,7 @@ router.post('/notifications', async (req, res) => {
 
         // Aquí podrías programar el segundo mensaje para más tarde,
         // pero para simplificar, lo enviaremos de inmediato a modo de ejemplo.
-        // En una app real, esperarías al estado "delivered".
-        const mensaje2 = {
-            from: { user_id: order.seller.id },
-            to: { user_id: buyerId },
-            text: `Esperamos que disfrutes tu producto. Si está todo en orden, te agradeceríamos mucho si nos dejas tu calificación. ¡Gracias!`
-        };
-
-         await axios.post(`https://api.mercadolibre.com/messages/packs/${packId}/sellers/${order.seller.id}`, mensaje2, {
-            headers: { 'Authorization': `Bearer ${ACCESS_TOKEN}` }
-        });
-
-        console.log("Segundo mensaje enviado.");
+        // En una app real, esperarías al estado "delivered".        
 
       } else {
         console.log(`La orden ${order.id} no contiene el SKU específico o no tiene pack_id. No se envían mensajes.`);
