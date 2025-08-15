@@ -8,7 +8,7 @@ const router = express.Router();
 const ACCESS_TOKEN = 'APP_USR-3241028424517864-080612-81543bd3a162df90312bc199afe89a42-803031969'; 
 
 // El SKU del producto para el cual quieres enviar los mensajes automáticos
-const SKU_ESPECIFICO = 'TU-SKU-DE-PRODUCTO';
+const SKU_ESPECIFICO = '228315';
 
 router.post('/notifications', async (req, res) => {
   console.log('Notificación recibida:', req.body);
