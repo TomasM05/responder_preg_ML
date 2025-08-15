@@ -3,59 +3,96 @@ const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 
-// !! PEGA AQUÍ EL ACCESS TOKEN QUE OBTUVISTE EN LA FASE 3 !!
-// En Vercel, esto lo configuraremos como una Variable de Entorno.
-const ACCESS_TOKEN = 'APP_USR-3241028424517864-080612-81543bd3a162df90312bc199afe89a42-803031969'; 
-
-// El SKU del producto para el cual quieres enviar los mensajes automáticos
-const SKU_ESPECIFICO = '228315';
+// Leemos las credenciales y listas desde las Variables de Entorno
+const { ACCESS_TOKEN, SKU_LIST, CATEGORIAS_PERMITIDAS_LIST } = process.env;
 
 router.post('/notifications', async (req, res) => {
   console.log('Notificación recibida:', req.body);
 
   const notification = req.body;
 
-  // Solo nos interesan las notificaciones de órdenes
   if (notification.topic === 'orders_v2') {
     try {
-      // 1. Obtener los datos completos de la orden usando el access token
-      const orderResponse = await axios.get(notification.resource, {
-        headers: {
-          'Authorization': `Bearer ${ACCESS_TOKEN}`
-        }
-      });
+      async function meliApiRequest(config) {
+        config.headers = { ...config.headers, 'Authorization': `Bearer ${ACCESS_TOKEN}` };
+        return await axios(config);
+      }
+
+      const orderResponse = await meliApiRequest({ url: notification.resource, method: 'GET' });
 
       const order = orderResponse.data;
-      const packId = order.pack_id; // ID del paquete, necesario para enviar mensajes
+      const packId = order.pack_id;
       const buyerId = order.buyer.id;
+      const sellerId = order.seller.id;
 
-      // 2. Filtrar: ¿La orden contiene nuestro producto específico?
-      const tieneProductoEspecifico = order.order_items.some(
-        item => item.item.seller_sku === SKU_ESPECIFICO
+      if (!packId) {
+        console.log(`La orden ${order.id} no tiene pack_id. No se pueden enviar mensajes.`);
+        return res.status(200).send('OK');
+      }
+
+      const skuListString = SKU_LIST || '';
+      const skusParaChasis = skuListString.split(',');
+
+      const esParaChasis = order.order_items.some(
+        item => skusParaChasis.includes(item.item.seller_sku)
       );
 
-      if (tieneProductoEspecifico && packId) {
-        console.log(`La orden ${order.id} contiene el SKU ${SKU_ESPECIFICO}. Enviando mensajes.`);
-
-        // 3. Enviar el primer mensaje (post-compra)
-        const mensaje1 = {
-          from: { user_id: order.seller.id },
+      if (esParaChasis) {
+        // CAMINO 1: Si el SKU ESTÁ en la lista, preguntamos por el chasis.
+        console.log(`La orden ${order.id} contiene un SKU específico. Enviando mensaje para CHASIS.`);
+        
+        // --- AQUÍ ESTÁ EL CÓDIGO DEL MENSAJE QUE FALTABA ---
+        const mensajeChasis = {
+          from: { user_id: sellerId },
           to: { user_id: buyerId },
           text: `¡Hola ${order.buyer.first_name}! Muchas gracias por tu compra. ¿Podrías pasarme el número de chasis del vehículo? Así verifico que la compra sea correcta. ¡Saludos!`
         };
         
-        await axios.post(`https://api.mercadolibre.com/messages/packs/${packId}/sellers/${order.seller.id}`, mensaje1, {
-            headers: { 'Authorization': `Bearer ${ACCESS_TOKEN}` }
+        await meliApiRequest({
+            url: `https://api.mercadolibre.com/messages/packs/${packId}/sellers/${sellerId}`,
+            method: 'POST',
+            data: mensajeChasis
         });
-        
-        console.log("Primer mensaje enviado.");
-
-        // Aquí podrías programar el segundo mensaje para más tarde,
-        // pero para simplificar, lo enviaremos de inmediato a modo de ejemplo.
-        // En una app real, esperarías al estado "delivered".        
+        console.log("Mensaje de chasis enviado.");
 
       } else {
-        console.log(`La orden ${order.id} no contiene el SKU específico o no tiene pack_id. No se envían mensajes.`);
+        // CAMINO 2: Si el SKU NO ESTÁ en la lista, verificamos la categoría y sus padres.
+        console.log(`La orden ${order.id} es una compra general. Verificando categoría...`);
+
+        const itemId = order.order_items[0].item.id;
+        const itemResponse = await meliApiRequest({ url: `https://api.mercadolibre.com/items/${itemId}`, method: 'GET' });
+        const categoryId = itemResponse.data.category_id;
+        
+        const categoryDetailsResponse = await meliApiRequest({ url: `https://api.mercadolibre.com/categories/${categoryId}`, method: 'GET' });
+        
+        const pathFromRoot = categoryDetailsResponse.data.path_from_root;
+        
+        const categoriasPadrePermitidasString = CATEGORIAS_PERMITIDAS_LIST || '';
+        const categoriasPadrePermitidas = categoriasPadrePermitidasString.split(',');
+
+        const esCategoriaValida = pathFromRoot.some(
+          category => categoriasPadrePermitidas.includes(category.id)
+        );
+
+        if (esCategoriaValida) {
+          console.log(`La categoría ${categoryId} es subcategoría de una permitida. Enviando mensaje para MODELO/MOTOR.`);
+        
+          const mensajeModeloMotor = {
+            from: { user_id: sellerId },
+            to: { user_id: buyerId },
+            text: `¡Hola ${order.buyer.first_name}! Muchas gracias por tu compra. Para asegurar la compatibilidad de la pieza, ¿podrías indicarme el modelo, año y motor de tu vehículo? ¡Gracias!`
+          };
+
+          await meliApiRequest({
+              url: `https://api.mercadolibre.com/messages/packs/${packId}/sellers/${sellerId}`,
+              method: 'POST',
+              data: mensajeModeloMotor
+          });
+
+          console.log("Mensaje de modelo/motor enviado.");
+        } else {
+          console.log(`La categoría ${categoryId} no pertenece a ninguna categoría padre permitida. No se envía mensaje.`);
+        }
       }
 
     } catch (error) {
@@ -63,7 +100,6 @@ router.post('/notifications', async (req, res) => {
     }
   }
 
-  // Siempre debemos responder con un 200 OK para que Mercado Libre sepa que recibimos la notificación.
   res.status(200).send('Notificación recibida');
 });
 
